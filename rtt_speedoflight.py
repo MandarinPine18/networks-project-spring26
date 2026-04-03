@@ -15,6 +15,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 import urllib.request
+from urllib.error import URLError
 
 # ─────────────────────────────────────────────
 # CONFIG
@@ -70,19 +71,37 @@ def measure_rtt(url: str, probes: int = PROBES) -> dict[str, Any]:
         6. Sleep 0.2s between probes.
         7. If ALL probes lost, return None for all stats.
     """
-    samples = []
+    samples: list[float] = []
     lost    = 0
 
     for _ in range(probes):
-        # TODO: send probe
+        # sending probe
+        start = time.perf_counter()
+        try:
+            urllib.request.urlopen(url, timeout=3)
+        except URLError:
+            lost += 1   # in the case of a lost probe
+            continue
+        end = time.perf_counter()
+
+        # evaluating time
+        elapsed_ms = end - start
+        samples.append(elapsed_ms)
+
+        # pause
         time.sleep(0.2)
 
     if not samples:
         return {"min_ms": None, "mean_ms": None, "median_ms": None,
                 "loss_pct": 100.0, "samples": []}
 
-    # TODO: compute and return stats
-    return {}  # placeholder
+    return {
+        "min_ms": min(samples), 
+        "mean_ms": sum(samples) / len(samples), 
+        "median_ms": max(samples),
+        "loss_pct": float(lost) / float(probes) * 100.0, 
+        "samples": samples
+    }
 
 
 # ─────────────────────────────────────────────
@@ -102,8 +121,20 @@ def great_circle_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float
     Do NOT use geopy or any distance library.
     """
     R = 6371
-    # TODO
-    return 0.0  # placeholder
+
+    lat1_rad = math.radians(lat1)
+    lon1_rad = math.radians(lon1)
+    lat2_rad = math.radians(lat2)
+    lon2_rad = math.radians(lon2)
+
+    delta_lat_rad = lat2_rad - lat1_rad
+    delta_lon_rad = lon2_rad - lon1_rad
+
+    a = (math.sin(delta_lat_rad / 2))**2 + math.cos(lat1_rad) * math.cos(lat2_rad) * (math.sin(delta_lon_rad / 2))**2
+    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))
+    d = R * c
+
+    return d
 
 
 def get_my_location() -> tuple[float, float, str]:
@@ -117,7 +148,7 @@ def get_my_location() -> tuple[float, float, str]:
         return 42.3601, -71.0589, "Boston"
 
 
-def compute_inefficiency(results: dict, src_lat: float, src_lon: float) -> dict:
+def compute_inefficiency(results: dict[str, dict[str, Any]], src_lat: float, src_lon: float) -> dict[str, dict[str, Any]]:
     """
     Annotate each city in results with:
         "distance_km"        — great-circle distance from source
@@ -141,7 +172,7 @@ def compute_inefficiency(results: dict, src_lat: float, src_lon: float) -> dict:
 # TASK 3 — PLOTS
 # ─────────────────────────────────────────────
 
-def make_plots(results: dict):
+def make_plots(results: dict[str, dict[str, Any]]):
     """
     Produce two figures saved to FIGURES_DIR/.
 
