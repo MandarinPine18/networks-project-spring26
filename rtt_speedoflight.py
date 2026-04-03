@@ -6,7 +6,12 @@ Run with: python rtt_speedoflight.py   (no sudo needed)
 Requires: pip install requests matplotlib numpy
 """
 
-import math, time, os, requests, numpy as np
+from typing import Any
+import math
+import time
+import os
+import requests
+import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 import urllib.request
@@ -15,7 +20,7 @@ import urllib.request
 # CONFIG
 # ─────────────────────────────────────────────
 
-TARGETS = {
+TARGETS: dict[str, dict[str, Any]] = {
     "Tokyo":        {"url": "http://www.google.co.jp",   "coords": (35.6762,  139.6503), "continent": "Asia"},
     "São Paulo":    {"url": "http://www.google.com.br",  "coords": (-23.5505, -46.6333), "continent": "S. America"},
     "Lagos":        {"url": "http://www.google.com.ng",  "coords": (6.5244,     3.3792), "continent": "Africa"},
@@ -42,7 +47,7 @@ CONTINENT_COLORS = {
 # TASK 1 — MEASURE RTTs
 # ─────────────────────────────────────────────
 
-def measure_rtt(url: str, probes: int = PROBES) -> dict:
+def measure_rtt(url: str, probes: int = PROBES) -> dict[str, Any]:
     """
     Measure RTT to `url` using HTTP requests.
 
