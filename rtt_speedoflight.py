@@ -76,16 +76,16 @@ def measure_rtt(url: str, probes: int = PROBES) -> dict[str, Any]:
 
     for _ in range(probes):
         # sending probe
-        start = time.perf_counter()
+        start_ns = time.perf_counter_ns()
         try:
             urllib.request.urlopen(url, timeout=3)
         except URLError:
             lost += 1   # in the case of a lost probe
             continue
-        end = time.perf_counter()
+        end_ns = time.perf_counter_ns()
 
         # evaluating time
-        elapsed_ms = end - start
+        elapsed_ms = (end_ns - start_ns) / 1000000.0
         samples.append(elapsed_ms)
 
         # pause
@@ -163,8 +163,16 @@ def compute_inefficiency(results: dict[str, dict[str, Any]], src_lat: float, src
         4. Annotate results[city] in place.
     """
     for city, data in results.items():
-        # TODO
-        pass
+        distance_km: float = great_circle_km(src_lat, src_lon, data["coords"][0], data["coords"][1])
+        theoretical_min_ms: float = 2 * (distance_km / FIBER_SPEED_KM_S) * 1000
+        inefficiency_ratio = data["median_ms"] / theoretical_min_ms if data["median_ms"] is not None else None
+        high_inefficiency = inefficiency_ratio is None or inefficiency_ratio > 3.0
+
+        results[city]["distance_km"] = distance_km
+        results[city]["theoretical_min_ms"] = theoretical_min_ms
+        results[city]["inefficiency_ratio"] = inefficiency_ratio
+        results[city]["high_inefficiency"] = high_inefficiency
+    
     return results
 
 
@@ -202,14 +210,27 @@ def make_plots(results: dict[str, dict[str, Any]]):
 
     # ── Figure 1 ──────────────────────────────
     fig, ax = plt.subplots(figsize=(11, 6))
-    # TODO
+    barWidth = 0.25
+    r = np.arange(len(cities))
+    r2 = r + barWidth
+    ax.bar(r, [results[city]["theoretical_min_ms"] for city in cities], width=barWidth, label="Theoretical")
+    ax.bar(r2, [results[city]["median_ms"] for city in cities], width=barWidth, label="Measured (median)")
+    ax.set_xticks(r + barWidth/2)
+    ax.set_xticklabels(cities)
+    ax.set_xlabel("City")
+    ax.set_ylabel("RTT (ms)")
+    ax.legend()
+    ax.set_title("RTT Comparison")
     plt.tight_layout()
     plt.savefig(f"{FIGURES_DIR}/fig1_rtt_comparison.png", dpi=150, bbox_inches="tight")
     plt.close()
 
     # ── Figure 2 ──────────────────────────────
     fig, ax = plt.subplots(figsize=(10, 7))
-    # TODO
+    ax.scatter([results[city]["distance_km"] for city in cities], [results[city]["median_ms"] for city in cities])
+    ax.set_xlabel("Distance (km)")
+    ax.set_ylabel("RTT (ms)")
+    ax.set_title("RTT vs. Distance")
     plt.tight_layout()
     plt.savefig(f"{FIGURES_DIR}/fig2_distance_scatter.png", dpi=150, bbox_inches="tight")
     plt.close()
