@@ -32,6 +32,17 @@ TARGETS: dict[str, dict[str, Any]] = {
     "Singapore":    {"url": "http://www.google.com.sg",  "coords": (1.3521,   103.8198), "continent": "Asia"},
 }
 
+TARGETS2: dict[str, dict[str, Any]] = {
+    "Sendai":       {"url": "http://www.tohoku.ac.jp",  "coords": (38.2682,   140.8694), "continent": "Asia"},
+    "Seoul":        {"url": "http://www.snu.ac.kr",     "coords": (37.5503,   126.9971), "continent": "Asia"},
+    "New Delhi":    {"url": "http://www.iitd.ac.in",    "coords": (28.6139,    77.2088), "continent": "Asia"},
+    "Santiago":     {"url": "http://www.uchile.cl",     "coords": (-33.4489,  -70.6693), "continent": "S. America"},
+    "Johannesburg": {"url": "http://www.wits.ac.za",    "coords": (-26.2056,   28.0337), "continent": "Africa"},
+    "Berlin":       {"url": "http://www.fu-berlin.de",  "coords": (52.5200,    13.4050), "continent": "Europe"},
+    "London":       {"url": "http://www.imperial.ac.uk","coords": (51.5074,    -0.1278), "continent": "Europe"},
+    "Canberra":     {"url": "http://www.anu.edu.au",    "coords": (-35.2802,  149.1310), "continent": "Oceania"},
+}
+
 PROBES           = 15
 FIBER_SPEED_KM_S = 200_000
 FIGURES_DIR      = "figures"
@@ -98,7 +109,7 @@ def measure_rtt(url: str, probes: int = PROBES) -> dict[str, Any]:
     return {
         "min_ms": min(samples), 
         "mean_ms": sum(samples) / len(samples), 
-        "median_ms": max(samples),
+        "median_ms": np.median(samples),
         "loss_pct": float(lost) / float(probes) * 100.0, 
         "samples": samples
     }
@@ -180,7 +191,7 @@ def compute_inefficiency(results: dict[str, dict[str, Any]], src_lat: float, src
 # TASK 3 — PLOTS
 # ─────────────────────────────────────────────
 
-def make_plots(results: dict[str, dict[str, Any]]):
+def make_plots(results: tuple[str, dict[str, Any]]):
     """
     Produce two figures saved to FIGURES_DIR/.
 
@@ -205,18 +216,19 @@ def make_plots(results: dict[str, dict[str, Any]]):
         plt.close()
     """
     os.makedirs(FIGURES_DIR, exist_ok=True)
-    valid  = {c: d for c, d in results.items() if d.get("median_ms") is not None}
-    cities = sorted(valid, key=lambda c: valid[c]["distance_km"])
+    valid  = filter(lambda d: d[1].get("median_ms") is not None, results)
+    results_sorted = sorted(valid, key=lambda d: d[1]["distance_km"])
 
     # ── Figure 1 ──────────────────────────────
     fig, ax = plt.subplots(figsize=(11, 6))
     barWidth = 0.25
-    r = np.arange(len(cities))
+    r = np.arange(len(results_sorted))
     r2 = r + barWidth
-    ax.bar(r, [results[city]["theoretical_min_ms"] for city in cities], width=barWidth, label="Theoretical")
-    ax.bar(r2, [results[city]["median_ms"] for city in cities], width=barWidth, label="Measured (median)")
+    ax.bar(r, [result["theoretical_min_ms"] for city, result in results_sorted], width=barWidth, label="Theoretical")
+    ax.bar(r2, [result["median_ms"] for city, result in results_sorted], width=barWidth, label="Measured (median)")
+    ax.set_ylim(0, None)
     ax.set_xticks(r + barWidth/2)
-    ax.set_xticklabels(cities)
+    ax.set_xticklabels([city for city, result in results_sorted])
     ax.set_xlabel("City")
     ax.set_ylabel("RTT (ms)")
     ax.legend()
@@ -227,10 +239,25 @@ def make_plots(results: dict[str, dict[str, Any]]):
 
     # ── Figure 2 ──────────────────────────────
     fig, ax = plt.subplots(figsize=(10, 7))
-    ax.scatter([results[city]["distance_km"] for city in cities], [results[city]["median_ms"] for city in cities])
+    ax.scatter([result["distance_km"] for city, result in results_sorted], [result["median_ms"] for city, result in results_sorted], c=[CONTINENT_COLORS[result["continent"]] for city, result in results_sorted])
+    for city, result in results_sorted:
+        ax.annotate(city, (result["distance_km"]+100, result["median_ms"]+1))
+
+    # section to get the theoretical min
+    distance_km = np.linspace(0, max([result["distance_km"] for city, result in results_sorted])+1000, 1000)
+    theoretical_min_ms = 2 * (distance_km / FIBER_SPEED_KM_S) * 1000
+    ax.plot(distance_km, theoretical_min_ms, linestyle="dashed")
+
     ax.set_xlabel("Distance (km)")
     ax.set_ylabel("RTT (ms)")
     ax.set_title("RTT vs. Distance")
+    ax.set_xlim(0, max([result["distance_km"] for city, result in results_sorted])+1000)
+    ax.set_ylim(0, None)
+    ax.grid(True)
+
+    patches = [mpatches.Patch(color=color, label=continent) for continent, color in CONTINENT_COLORS.items()] 
+    ax.legend(handles=patches)
+
     plt.tight_layout()
     plt.savefig(f"{FIGURES_DIR}/fig2_distance_scatter.png", dpi=150, bbox_inches="tight")
     plt.close()
@@ -253,12 +280,23 @@ def main():
         results[city] = {**stats, "coords": info["coords"], "continent": info["continent"]}
         med = stats.get("median_ms")
         print(f"median={med:.1f} ms  loss={stats['loss_pct']:.0f}%" if med else "unreachable")
+    
+    results_2 = {}
+    for city, info in TARGETS2.items():
+        print(f"Probing {city} ({info['url']}) ...", end=" ", flush=True)
+        stats = measure_rtt(info["url"])
+        results_2[city] = {**stats, "coords": info["coords"], "continent": info["continent"]}
+        med = stats.get("median_ms")
+        print(f"median={med:.1f} ms  loss={stats['loss_pct']:.0f}%" if med else "unreachable")
 
     results = compute_inefficiency(results, src_lat, src_lon)
+    results_2 = compute_inefficiency(results_2, src_lat, src_lon)
+
+    results_consolidated = list(results.items()) + list(results_2.items())
 
     print(f"\n{'City':<14} {'Dist km':>8} {'Median ms':>10} {'Theor. ms':>10} {'Ratio':>7}")
     print("─" * 55)
-    for city, d in sorted(results.items(), key=lambda x: x[1].get("distance_km", 0)):
+    for city, d in sorted(results_consolidated, key=lambda x: x[1].get("distance_km", 0)):
         dist  = d.get("distance_km", 0)
         med   = d.get("median_ms")
         theor = d.get("theoretical_min_ms")
@@ -269,7 +307,7 @@ def main():
               f"{(f'{theor:.1f}' if theor else 'N/A'):>10} "
               f"{(f'{ratio:.2f}' if ratio else 'N/A'):>7}{flag}")
 
-    make_plots(results)
+    make_plots(results_consolidated)
 
 if __name__ == "__main__":
     main()
